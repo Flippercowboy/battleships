@@ -100,6 +100,23 @@ button { cursor: pointer; border: none; border-radius: var(--border-radius); fon
 .btn-secondary.danger { color: var(--ship-hit); border-color: var(--ship-hit); }
 .btn-secondary.danger:hover { background: rgba(230,57,70,0.12); }
 
+.btn-confirm {
+  background: var(--gold);
+  color: var(--navy-deep);
+  border: none;
+  border-radius: 50px;
+  padding: 12px 20px;
+  font-size: 1rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 4px 14px rgba(244,162,97,0.4);
+  letter-spacing: 0.03em;
+}
+.btn-confirm:hover:not(:disabled)  { background: #e8923a; transform: translateY(-2px); box-shadow: 0 6px 18px rgba(244,162,97,0.55); }
+.btn-confirm:active:not(:disabled) { transform: translateY(0); }
+.btn-confirm:disabled { background: #3a3020; color: #6a5a3a; cursor: not-allowed; box-shadow: none; }
+
 kbd {
   background: var(--navy-light);
   color: var(--text-muted);
@@ -283,6 +300,7 @@ kbd {
 
 /* Placement states */
 .cell.has-ship    { background: var(--ship-green); border-color: #3d8a66; }
+.cell.staging     { background: rgba(244,162,97,0.55); border-color: var(--gold); box-shadow: 0 0 0 2px rgba(244,162,97,0.4); }
 .cell.preview-ok  { background: var(--preview-ok); border-color: #52b788; }
 .cell.preview-bad { background: var(--preview-bad); border-color: var(--ship-hit); }
 

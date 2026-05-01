@@ -107,17 +107,22 @@ function renderEnemyGrid(containerId, displayBoard, clickable, locked, onCellCli
 
 // ── Placement grid ────────────────────────────────────────────────────────────
 //
-// Same as renderGrid but also overlays a hover preview for the ship being placed.
+// Same as renderGrid but also overlays a preview for the ship being placed.
+// hoverRow/Col  = mouse/touch hover  → preview-ok / preview-bad (faint)
+// stagingRow/Col = cell the player tapped/selected → staging (bright gold, awaiting confirm)
+// The staging position takes precedence over hover.
 
-function renderPlacementGrid(board, placingShip, hoverRow, hoverCol, horizontal) {
+function renderPlacementGrid(board, placingShip, previewRow, previewCol, horizontal) {
   const container = document.getElementById('placement-grid');
   container.innerHTML = '';
 
-  // Compute preview cells
+  // Determine whether the preview position is the staged (confirmed-pending) one
+  const isStaged = (S && S.stagingRow !== null && S.stagingRow === previewRow && S.stagingCol === previewCol);
+
   let previewCells = new Set();
   let previewValid = false;
-  if (placingShip && hoverRow !== null && hoverCol !== null) {
-    const cells = getShipCells(hoverRow, hoverCol, placingShip.size, horizontal);
+  if (placingShip && previewRow !== null && previewCol !== null) {
+    const cells = getShipCells(previewRow, previewCol, placingShip.size, horizontal);
     previewValid = isValidPlacement(board, cells);
     cells.forEach(({ row, col }) => previewCells.add(`${row},${col}`));
   }
@@ -134,9 +139,13 @@ function renderPlacementGrid(board, placingShip, hoverRow, hoverCol, horizontal)
       const inPrev  = previewCells.has(`${r},${c}`);
       const classes = ['cell'];
 
-      if (cell.shipId)                   classes.push('has-ship');
-      else if (inPrev && previewValid)   classes.push('preview-ok');
-      else if (inPrev && !previewValid)  classes.push('preview-bad');
+      if (cell.shipId) {
+        classes.push('has-ship');
+      } else if (inPrev) {
+        if (isStaged && previewValid)      classes.push('staging');
+        else if (!isStaged && previewValid) classes.push('preview-ok');
+        else                                classes.push('preview-bad');
+      }
 
       const div = el('div', classes.join(' '));
       div.dataset.row = r;

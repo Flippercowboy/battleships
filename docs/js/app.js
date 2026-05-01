@@ -333,10 +333,59 @@ function initPlacementScreen() {
   renderShipList(0);
   renderPlacementGrid(S.myBoard, SHIPS[0], null, null, true);
   updateOpponentStatus();
+  document.getElementById('placement-status').textContent = 'Tap a cell to position your ' + SHIPS[0].name + '.';
 
-  const grid = document.getElementById('placement-grid');
+  // ── Placement state ──────────────────────────────────────────────────────────
+  // stagingRow/Col: the cell the player has selected but not yet confirmed.
+  // null = nothing selected yet for this ship.
+  S.stagingRow = null;
+  S.stagingCol = null;
 
+  const grid    = document.getElementById('placement-grid');
+  const btnConfirm = document.getElementById('btn-confirm-place');
+
+  function updateConfirmButton() {
+    const canConfirm = S.stagingRow !== null &&
+                       isValidPlacement(
+                         S.myBoard,
+                         getShipCells(S.stagingRow, S.stagingCol, SHIPS[S.placingIndex].size, S.horizontal)
+                       );
+    btnConfirm.disabled    = !canConfirm;
+    btnConfirm.textContent = canConfirm
+      ? '\u2713 Place ' + SHIPS[S.placingIndex].name
+      : '\u2713 Place Ship';
+  }
+
+  function updatePlacementStatus() {
+    const statusEl = document.getElementById('placement-status');
+    if (S.placingIndex >= SHIPS.length) return;
+    if (S.stagingRow === null) {
+      statusEl.textContent = 'Tap a cell to position your ' + SHIPS[S.placingIndex].name + '.';
+    } else {
+      const valid = isValidPlacement(
+        S.myBoard,
+        getShipCells(S.stagingRow, S.stagingCol, SHIPS[S.placingIndex].size, S.horizontal)
+      );
+      statusEl.textContent = valid
+        ? '\u2713 Press \u201cPlace ' + SHIPS[S.placingIndex].name + '\u201d to lock it in.'
+        : '\u274c Invalid position \u2014 tap a different cell.';
+    }
+  }
+
+  // Tap/click a cell: sets the staging position (no ship placed yet)
+  grid.onclick = (e) => {
+    const cell = e.target.closest('[data-row]');
+    if (!cell || S.placingIndex >= SHIPS.length) return;
+    S.stagingRow = +cell.dataset.row;
+    S.stagingCol = +cell.dataset.col;
+    renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.stagingRow, S.stagingCol, S.horizontal);
+    updateConfirmButton();
+    updatePlacementStatus();
+  };
+
+  // Mouse hover (desktop): only moves preview if nothing is staged yet
   grid.onmouseover = (e) => {
+    if (S.stagingRow !== null) return; // already selected, don't chase mouse
     const cell = e.target.closest('[data-row]');
     if (!cell || S.placingIndex >= SHIPS.length) return;
     S.hoverRow = +cell.dataset.row;
@@ -345,6 +394,7 @@ function initPlacementScreen() {
   };
 
   grid.onmouseleave = () => {
+    if (S.stagingRow !== null) return; // keep staged preview visible
     S.hoverRow = null;
     S.hoverCol = null;
     if (S.placingIndex < SHIPS.length) {
@@ -352,47 +402,37 @@ function initPlacementScreen() {
     }
   };
 
-  // Touch devices: show preview on first touch so players can see before placing
-  grid.addEventListener('touchstart', (e) => {
-    const cell = e.touches[0] && document.elementFromPoint(
-      e.touches[0].clientX, e.touches[0].clientY
-    )?.closest('[data-row]');
-    if (!cell || S.placingIndex >= SHIPS.length) return;
-    S.hoverRow = +cell.dataset.row;
-    S.hoverCol = +cell.dataset.col;
-    renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.hoverRow, S.hoverCol, S.horizontal);
-  }, { passive: true });
-
-  grid.onclick = (e) => {
-    const cell = e.target.closest('[data-row]');
-    if (!cell || S.placingIndex >= SHIPS.length) return;
-    const row    = +cell.dataset.row;
-    const col    = +cell.dataset.col;
-    const result = placeShipOnBoard(S.myBoard, SHIPS[S.placingIndex], row, col, S.horizontal);
+  // Confirm button: locks the staged ship onto the board
+  btnConfirm.onclick = () => {
+    if (S.stagingRow === null || S.placingIndex >= SHIPS.length) return;
+    const result = placeShipOnBoard(S.myBoard, SHIPS[S.placingIndex], S.stagingRow, S.stagingCol, S.horizontal);
     if (!result) return;
 
-    // Play placement sound
     Audio.playPlace();
-
     S.myBoard = result.board;
-    S.myShips.push({ ...SHIPS[S.placingIndex], cells: result.cells, horizontal: S.horizontal, row, col });
-
-    // Flash the just-placed cells green briefly
+    S.myShips.push({ ...SHIPS[S.placingIndex], cells: result.cells, horizontal: S.horizontal, row: S.stagingRow, col: S.stagingCol });
     flashPlacedCells(result.cells);
 
+    // Reset staging for next ship
+    S.stagingRow = null;
+    S.stagingCol = null;
+    S.hoverRow   = null;
+    S.hoverCol   = null;
     S.placingIndex++;
 
-    // Clear hover so the NEXT ship doesn't immediately preview on top of placed ship
-    S.hoverRow = null;
-    S.hoverCol = null;
-
     renderShipList(S.placingIndex);
+
     if (S.placingIndex >= SHIPS.length) {
       renderPlacementGrid(S.myBoard, null, null, null, S.horizontal);
+      btnConfirm.disabled    = true;
+      btnConfirm.textContent = '\u2713 Place Ship';
       document.getElementById('btn-ready').disabled         = false;
       document.getElementById('placement-status').textContent = '\u2705 All ships placed! Press Ready when done.';
     } else {
       renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], null, null, S.horizontal);
+      btnConfirm.disabled    = true;
+      btnConfirm.textContent = '\u2713 Place Ship';
+      updatePlacementStatus();
     }
   };
 
@@ -400,7 +440,12 @@ function initPlacementScreen() {
     S.horizontal = !S.horizontal;
     document.getElementById('orientation-label').textContent = S.horizontal ? 'Horizontal \u2192' : 'Vertical \u2193';
     if (S.placingIndex < SHIPS.length) {
-      renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.hoverRow, S.hoverCol, S.horizontal);
+      // Re-render with current staging/hover position after rotation
+      const previewRow = S.stagingRow !== null ? S.stagingRow : S.hoverRow;
+      const previewCol = S.stagingCol !== null ? S.stagingCol : S.hoverCol;
+      renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], previewRow, previewCol, S.horizontal);
+      if (S.stagingRow !== null) updateConfirmButton();
+      updatePlacementStatus();
     }
   };
 
@@ -415,6 +460,10 @@ function initPlacementScreen() {
     S.myBoard      = result.board;
     S.myShips      = result.ships;
     S.placingIndex = SHIPS.length;
+    S.stagingRow   = null;
+    S.stagingCol   = null;
+    btnConfirm.disabled    = true;
+    btnConfirm.textContent = '\u2713 Place Ship';
     renderShipList(SHIPS.length);
     renderPlacementGrid(S.myBoard, null, null, null, S.horizontal);
     document.getElementById('btn-ready').disabled         = false;
@@ -425,9 +474,15 @@ function initPlacementScreen() {
     S.myBoard      = createEmptyBoard();
     S.myShips      = [];
     S.placingIndex = 0;
+    S.stagingRow   = null;
+    S.stagingCol   = null;
+    S.hoverRow     = null;
+    S.hoverCol     = null;
     _opponentReady = false;
+    btnConfirm.disabled    = true;
+    btnConfirm.textContent = '\u2713 Place Ship';
     document.getElementById('btn-ready').disabled         = true;
-    document.getElementById('placement-status').textContent = '';
+    document.getElementById('placement-status').textContent = 'Tap a cell to position your ' + SHIPS[0].name + '.';
     renderShipList(0);
     renderPlacementGrid(S.myBoard, SHIPS[0], null, null, S.horizontal);
   };
