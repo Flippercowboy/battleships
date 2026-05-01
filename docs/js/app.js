@@ -352,6 +352,17 @@ function initPlacementScreen() {
     }
   };
 
+  // Touch devices: show preview on first touch so players can see before placing
+  grid.addEventListener('touchstart', (e) => {
+    const cell = e.touches[0] && document.elementFromPoint(
+      e.touches[0].clientX, e.touches[0].clientY
+    )?.closest('[data-row]');
+    if (!cell || S.placingIndex >= SHIPS.length) return;
+    S.hoverRow = +cell.dataset.row;
+    S.hoverCol = +cell.dataset.col;
+    renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.hoverRow, S.hoverCol, S.horizontal);
+  }, { passive: true });
+
   grid.onclick = (e) => {
     const cell = e.target.closest('[data-row]');
     if (!cell || S.placingIndex >= SHIPS.length) return;
@@ -359,16 +370,29 @@ function initPlacementScreen() {
     const col    = +cell.dataset.col;
     const result = placeShipOnBoard(S.myBoard, SHIPS[S.placingIndex], row, col, S.horizontal);
     if (!result) return;
+
+    // Play placement sound
+    Audio.playPlace();
+
     S.myBoard = result.board;
     S.myShips.push({ ...SHIPS[S.placingIndex], cells: result.cells, horizontal: S.horizontal, row, col });
+
+    // Flash the just-placed cells green briefly
+    flashPlacedCells(result.cells);
+
     S.placingIndex++;
+
+    // Clear hover so the NEXT ship doesn't immediately preview on top of placed ship
+    S.hoverRow = null;
+    S.hoverCol = null;
+
     renderShipList(S.placingIndex);
     if (S.placingIndex >= SHIPS.length) {
       renderPlacementGrid(S.myBoard, null, null, null, S.horizontal);
       document.getElementById('btn-ready').disabled         = false;
       document.getElementById('placement-status').textContent = '\u2705 All ships placed! Press Ready when done.';
     } else {
-      renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.hoverRow, S.hoverCol, S.horizontal);
+      renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], null, null, S.horizontal);
     }
   };
 
@@ -579,13 +603,13 @@ function updateBattleUI(row, col, result, iAttacked) {
   setTurnIndicator(S.isMyTurn);
   const coord = coordLabel(row, col);
   if (iAttacked) {
-    if (result.shipSunk)       addBattleLog('\ud83d\udca5 You sunk their ' + result.shipSunk + ' at ' + coord + '!', 'sunk');
-    else if (result.hit)       addBattleLog('\ud83d\udd25 Hit at ' + coord + '!' + (S.rules === 'classic' ? ' Fire again!' : ''), 'hit');
-    else                       addBattleLog('\ud83d\udca7 Miss at ' + coord + '.', 'miss');
+    if (result.shipSunk)       { Audio.playSunk(); addBattleLog('\ud83d\udca5 You sunk their ' + result.shipSunk + ' at ' + coord + '!', 'sunk'); }
+    else if (result.hit)       { Audio.playHit();  addBattleLog('\ud83d\udd25 Hit at ' + coord + '!' + (S.rules === 'classic' ? ' Fire again!' : ''), 'hit'); }
+    else                       { Audio.playMiss(); addBattleLog('\ud83d\udca7 Miss at ' + coord + '.', 'miss'); }
   } else {
-    if (result.shipSunk)       addBattleLog('\ud83d\udc80 Opponent sunk your ' + result.shipSunk + ' at ' + coord + '!', 'sunk');
-    else if (result.hit)       addBattleLog('\ud83d\udd25 Opponent hit at ' + coord + '!', 'hit');
-    else                       addBattleLog('\ud83d\udca7 Opponent missed at ' + coord + '.', 'miss');
+    if (result.shipSunk)       { Audio.playSunk(); addBattleLog('\ud83d\udc80 Opponent sunk your ' + result.shipSunk + ' at ' + coord + '!', 'sunk'); }
+    else if (result.hit)       { Audio.playHit();  addBattleLog('\ud83d\udd25 Opponent hit at ' + coord + '!', 'hit'); }
+    else                       { Audio.playMiss(); addBattleLog('\ud83d\udca7 Opponent missed at ' + coord + '.', 'miss'); }
   }
 }
 
@@ -599,6 +623,7 @@ function showGameOver(won) {
   if (S.phase === 'gameover') return;
   S.phase = 'gameover';
   rtUnsubscribe();
+  if (won) Audio.playWin(); else Audio.playLose();
   showScreen('gameover');
 
   document.getElementById('gameover-result').innerHTML = won

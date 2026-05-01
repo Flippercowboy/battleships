@@ -413,7 +413,13 @@ kbd {
 .board-label.spectator-p2 { color: var(--gold); }
 
 .spectator-log { max-height: 220px; }
-
+/* Placed-ship flash animation */
+@keyframes cellFlash {
+  0%   { background: var(--gold); border-color: #e09040; transform: scale(1.15); }
+  60%  { background: var(--ship-green); border-color: #3d8a66; transform: scale(1.05); }
+  100% { background: var(--ship-green); border-color: #3d8a66; transform: scale(1); }
+}
+.cell-flash { animation: cellFlash 0.4s ease forwards; z-index: 2; }
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
   :root { --cell-size: clamp(24px, 8.5vw, 32px); }

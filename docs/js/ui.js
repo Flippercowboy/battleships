@@ -218,3 +218,19 @@ function renderSpectatorBoards() {
   if (S.specP1Board) renderEnemyGrid('spec-p1-board', S.specP1Board, false, true, null);
   if (S.specP2Board) renderEnemyGrid('spec-p2-board', S.specP2Board, false, true, null);
 }
+
+// ── Ship placement flash ──────────────────────────────────────────────────────
+// Briefly flashes cells gold after a ship is placed so it's clear it "locked in".
+
+function flashPlacedCells(cells) {
+  const grid = document.getElementById('placement-grid');
+  if (!grid) return;
+  cells.forEach(({ row, col }) => {
+    // +1 offset for the row-header column and corner cell
+    const cellIndex = (row + 1) * 11 + (col + 1);
+    const el = grid.children[cellIndex];
+    if (!el) return;
+    el.classList.add('cell-flash');
+    setTimeout(() => el.classList.remove('cell-flash'), 400);
+  });
+}
