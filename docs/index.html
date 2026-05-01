@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Battleships</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════ HOME SCREEN -->
+  <div id="screen-home" class="screen active">
+    <div class="screen-inner center-content">
+      <h1 class="title">⚓ BATTLESHIPS</h1>
+
+      <div class="rules-section">
+        <h2 class="section-label">Choose Rules</h2>
+        <div class="rule-cards">
+          <div class="rule-card selected" data-rules="classic">
+            <div class="rule-icon">⚓</div>
+            <h3>Classic</h3>
+            <p>A hit lets you fire again.<br>Miss = switch turn.</p>
+          </div>
+          <div class="rule-card" data-rules="modern">
+            <div class="rule-icon">🔄</div>
+            <h3>Modern</h3>
+            <p>Turns always alternate<br>after each shot.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="home-buttons">
+        <button id="btn-new-game" class="btn-primary">New Game</button>
+        <button id="btn-join-game" class="btn-secondary">Join with Code</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ LOBBY SCREEN -->
+  <div id="screen-lobby" class="screen">
+    <div class="screen-inner center-content">
+      <h1 class="title">⚓ BATTLESHIPS</h1>
+      <h2 class="section-label">Invite Player 2</h2>
+
+      <div id="qrcode" class="qr-box"></div>
+
+      <div class="room-code-display">
+        <span class="room-code-label">Room Code</span>
+        <strong id="room-code-text" class="room-code-value">------</strong>
+      </div>
+
+      <p class="hint-text">Scan the QR code or share the room code</p>
+
+      <div id="rules-badge" class="badge"></div>
+      <div id="lobby-status" class="status-pill waiting">⏳ Waiting for opponent…</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════ JOIN SCREEN -->
+  <div id="screen-join" class="screen">
+    <div class="screen-inner center-content">
+      <h1 class="title">⚓ BATTLESHIPS</h1>
+      <h2 class="section-label">Join a Game</h2>
+
+      <input
+        id="join-code-input"
+        class="code-input"
+        type="text"
+        placeholder="Enter 6-char code"
+        maxlength="6"
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+      />
+      <div id="join-error" class="error-msg"></div>
+      <button id="btn-join-submit" class="btn-primary">Join Game</button>
+      <button id="btn-back-home" class="btn-secondary">← Back</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ PLACEMENT SCREEN -->
+  <div id="screen-placement" class="screen">
+    <div class="screen-inner">
+      <h2 class="screen-title">Place Your Ships</h2>
+      <p id="placement-opponent-status" class="opponent-status"></p>
+
+      <div class="placement-layout">
+        <!-- Sidebar -->
+        <div class="placement-sidebar">
+          <div id="ships-to-place" class="ship-list"></div>
+
+          <div class="orientation-row">
+            <button id="btn-rotate" class="btn-secondary small">⟳ Rotate <kbd>R</kbd></button>
+            <span id="orientation-label" class="orient-label">Horizontal →</span>
+          </div>
+
+          <button id="btn-random-place" class="btn-secondary small">🎲 Random</button>
+          <button id="btn-clear-ships"  class="btn-secondary small danger">✕ Clear</button>
+
+          <button id="btn-ready" class="btn-primary" disabled>✓ Ready!</button>
+          <div id="placement-status" class="placement-hint"></div>
+        </div>
+
+        <!-- Grid -->
+        <div class="grid-wrap">
+          <div id="placement-grid" class="grid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════ BATTLE SCREEN -->
+  <div id="screen-battle" class="screen">
+    <div class="screen-inner">
+      <div class="battle-header">
+        <h1 class="title compact">⚓</h1>
+        <div id="turn-indicator" class="turn-indicator"></div>
+        <div id="rules-indicator" class="rules-indicator"></div>
+      </div>
+
+      <div class="battle-layout">
+        <div class="battle-board-wrap">
+          <h3 class="board-label">Your Fleet</h3>
+          <div id="my-board" class="grid"></div>
+        </div>
+        <div class="battle-board-wrap">
+          <h3 class="board-label">Enemy Waters</h3>
+          <div id="enemy-board" class="grid attack-grid"></div>
+        </div>
+      </div>
+
+      <div id="battle-log" class="battle-log"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════ GAME OVER SCREEN -->
+  <div id="screen-gameover" class="screen">
+    <div class="screen-inner center-content">
+      <h1 class="title">⚓ BATTLESHIPS</h1>
+      <div id="gameover-result" class="gameover-result"></div>
+      <button id="btn-play-again" class="btn-primary">Play Again</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════ SCRIPTS -->
+  <!-- CDN libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <!-- App – order matters: config → game → db → realtime → ui → app -->
+  <script src="js/config.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/realtime.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
