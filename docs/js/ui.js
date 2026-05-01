@@ -210,3 +210,11 @@ function generateQR(roomCode) {
 function coordLabel(row, col) {
   return String.fromCharCode(65 + col) + (row + 1);
 }
+
+// ── Spectator board rendering ─────────────────────────────────────────────────
+// Renders both live boards for the host/spectator screen.
+
+function renderSpectatorBoards() {
+  if (S.specP1Board) renderEnemyGrid('spec-p1-board', S.specP1Board, false, true, null);
+  if (S.specP2Board) renderEnemyGrid('spec-p2-board', S.specP2Board, false, true, null);
+}

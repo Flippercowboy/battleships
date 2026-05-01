@@ -8,10 +8,11 @@ const S = {
   playerId:   null,
   roomId:     null,
   roomCode:   null,
-  playerNum:  null,   // 1 | 2
+  playerNum:  null,   // 1 | 2  (null for host)
   rules:      'classic',
   opponentId: null,
-  phase:      'home', // home | lobby | placing | battle | gameover
+  mode:       null,   // 'host' | 'player'
+  phase:      'home', // home | lobby | spectator | placing | battle | gameover
 
   // Placement phase
   myBoard:          null,
@@ -22,12 +23,19 @@ const S = {
   hoverCol:         null,
 
   // Battle phase
-  enemyRealBoard:    null,  // opponent's actual board (fetched from DB for hit detection)
-  enemyDisplayBoard: null,  // what we show: hits/misses only, no ships
-  isMyTurn:         false,
+  enemyRealBoard:    null,
+  enemyDisplayBoard: null,
+  isMyTurn:          false,
+
+  // Spectator / host state
+  specP1Id:          null,
+  specP2Id:          null,
+  specP1Board:       null,  // shots fired AT player 1
+  specP2Board:       null,  // shots fired AT player 2
+  specJoinedPlayers: null,
+  specReadyCount:    0,
 };
 
-// Flags for placement synchronisation
 let _myReady       = false;
 let _opponentReady = false;
 
@@ -40,7 +48,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const joinCode = params.get('join');
 
   if (joinCode) {
-    // Player 2 arriving via QR / shared link
     joinViaUrl(joinCode);
   } else {
     initHomeScreen();
@@ -51,9 +58,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function initHomeScreen() {
   S.phase = 'home';
+  S.mode  = null;
   showScreen('home');
 
-  // Rules selector
   document.querySelectorAll('.rule-card').forEach(card => {
     card.onclick = () => {
       document.querySelectorAll('.rule-card').forEach(c => c.classList.remove('selected'));
@@ -62,52 +69,49 @@ function initHomeScreen() {
     };
   });
 
-  document.getElementById('btn-new-game').onclick  = handleNewGame;
-  document.getElementById('btn-join-game').onclick = () => initJoinScreen();
+  document.getElementById('btn-host-game').onclick = handleHostGame;
+  document.getElementById('btn-join-game').onclick = initJoinScreen;
 }
 
-// ── NEW GAME (Player 1) ───────────────────────────────────────────────────────
+// ── HOST GAME (Laptop display) ─────────────────────────────────────────────────
 
-async function handleNewGame() {
-  const btn = document.getElementById('btn-new-game');
+async function handleHostGame() {
+  const btn = document.getElementById('btn-host-game');
   btn.disabled    = true;
-  btn.textContent = 'Creating…';
+  btn.textContent = 'Creating\u2026';
 
   try {
     const room = await dbCreateRoom(S.rules);
-    S.roomId     = room.id;
-    S.roomCode   = room.room_code;
-    S.playerNum  = 1;
-    S.opponentId = null;
+    S.roomId             = room.id;
+    S.roomCode           = room.room_code;
+    S.mode               = 'host';
+    S.specJoinedPlayers  = new Set();
 
-    // Register handlers BEFORE showing lobby so we don't miss a fast join
-    HANDLERS.onPlayerJoined = async (payload) => {
-      S.opponentId = payload.playerId;
-      document.getElementById('lobby-status').textContent  = '✅ Opponent joined! Starting…';
-      document.getElementById('lobby-status').className    = 'status-pill ready';
-      await new Promise(r => setTimeout(r, 900));
-      initPlacementScreen();
-    };
-    HANDLERS.onShipsReady    = onOpponentShipsReady;
-    HANDLERS.onMove          = onIncomingMove;
-    HANDLERS.onGameOver      = onGameOver;
+    HANDLERS.onPlayerJoined  = onHostPlayerJoined;
+    HANDLERS.onShipsReady    = onSpectatorShipsReady;
+    HANDLERS.onMove          = onSpectatorMove;
+    HANDLERS.onGameOver      = onSpectatorGameOver;
     HANDLERS.onPresenceLeave = onPresenceLeave;
 
     rtSubscribe(S.roomId);
     showLobby(room);
 
-    // Fallback poll: detect player2_id appearing in DB (handles race with broadcast)
+    // Poll fallback — catches joins that happen before subscribe completes
     const poll = setInterval(async () => {
       if (S.phase !== 'lobby') { clearInterval(poll); return; }
       try {
         const r = await dbGetRoom(S.roomId);
-        if (r.player2_id && !S.opponentId) {
-          S.opponentId = r.player2_id;
+        let changed = false;
+        if (r.player1_id && !S.specJoinedPlayers.has(r.player1_id)) {
+          S.specJoinedPlayers.add(r.player1_id); changed = true;
+        }
+        if (r.player2_id && !S.specJoinedPlayers.has(r.player2_id)) {
+          S.specJoinedPlayers.add(r.player2_id); changed = true;
+        }
+        if (changed) updateLobbyJoinCount(S.specJoinedPlayers.size);
+        if (S.specJoinedPlayers.size >= 2) {
           clearInterval(poll);
-          document.getElementById('lobby-status').textContent = '✅ Opponent joined! Starting…';
-          document.getElementById('lobby-status').className   = 'status-pill ready';
-          await new Promise(res => setTimeout(res, 900));
-          initPlacementScreen();
+          await initSpectatorScreen();
         }
       } catch (_) {}
     }, 3000);
@@ -115,7 +119,7 @@ async function handleNewGame() {
   } catch (err) {
     alert(err.message);
     btn.disabled    = false;
-    btn.textContent = 'New Game';
+    btn.textContent = 'Host Game';
   }
 }
 
@@ -126,17 +130,123 @@ function showLobby(room) {
 
   const badge = document.getElementById('rules-badge');
   badge.textContent = S.rules === 'classic'
-    ? '⚓ Classic Rules – hit again on a hit'
-    : '🔄 Modern Rules – turns always alternate';
+    ? '\u2693 Classic Rules \u2013 hit again on a hit'
+    : '\ud83d\udd04 Modern Rules \u2013 turns always alternate';
+
+  updateLobbyJoinCount(0);
+}
+
+function updateLobbyJoinCount(count) {
+  const el = document.getElementById('lobby-status');
+  if (count === 0) {
+    el.textContent = '\u23f3 Waiting for players to scan\u2026 (0 / 2)';
+    el.className   = 'status-pill waiting';
+  } else if (count === 1) {
+    el.textContent = '\u2693 Player 1 joined! Waiting for Player 2\u2026 (1 / 2)';
+    el.className   = 'status-pill waiting';
+  } else {
+    el.textContent = '\u2705 Both players joined! Starting\u2026';
+    el.className   = 'status-pill ready';
+  }
+}
+
+function onHostPlayerJoined(payload) {
+  if (!S.specJoinedPlayers) S.specJoinedPlayers = new Set();
+  S.specJoinedPlayers.add(payload.playerId);
+  updateLobbyJoinCount(S.specJoinedPlayers.size);
+  if (S.specJoinedPlayers.size >= 2) {
+    setTimeout(initSpectatorScreen, 1000);
+  }
+}
+
+// ── SPECTATOR SCREEN ──────────────────────────────────────────────────────────
+
+async function initSpectatorScreen() {
+  if (S.phase === 'spectator') return;
+  S.phase = 'spectator';
+
+  const room    = await dbGetRoom(S.roomId);
+  S.specP1Id    = room.player1_id;
+  S.specP2Id    = room.player2_id;
+  S.specP1Board = createEmptyBoard();
+  S.specP2Board = createEmptyBoard();
+  S.specReadyCount = 0;
+
+  HANDLERS.onShipsReady    = onSpectatorShipsReady;
+  HANDLERS.onMove          = onSpectatorMove;
+  HANDLERS.onGameOver      = onSpectatorGameOver;
+
+  showScreen('spectator');
+  renderSpectatorBoards();
+
+  document.getElementById('spectator-status').textContent = '\u23f3 Waiting for both players to place ships\u2026';
+  document.getElementById('spectator-turn').textContent   = '';
+  document.getElementById('btn-spectator-new-game').style.display = 'none';
+  document.getElementById('btn-spectator-new-game').onclick = () => {
+    window.location.href = location.href.split('?')[0];
+  };
+}
+
+function onSpectatorShipsReady(payload) {
+  S.specReadyCount++;
+  const label = payload.playerId === S.specP1Id ? 'Player 1' : 'Player 2';
+  addSpectatorLog(label + ' placed their ships \u2713');
+  const statusEl = document.getElementById('spectator-status');
+  statusEl.textContent = S.specReadyCount >= 2
+    ? '\u2694\ufe0f  Battle in progress!'
+    : '\u23f3 ' + label + ' is ready \u2013 waiting for other player\u2026';
+}
+
+function onSpectatorMove(payload) {
+  const { attackerId, row, col, hit, shipSunk, nextTurn } = payload;
+  const isP1Attacking = (attackerId === S.specP1Id);
+  const attackerLabel = isP1Attacking ? 'Player 1' : 'Player 2';
+  const defenderLabel = isP1Attacking ? 'Player 2' : 'Player 1';
+
+  // Mark shot on the defender's display board
+  const defBoard = isP1Attacking ? S.specP2Board : S.specP1Board;
+  defBoard[row][col] = { shipId: hit ? 'hit' : null, hit: true };
+
+  // Update turn indicator
+  const turnLabel = (nextTurn === S.specP1Id) ? 'Player 1' : 'Player 2';
+  const turnEl = document.getElementById('spectator-turn');
+  turnEl.textContent = turnLabel + '\'s turn';
+  turnEl.className   = 'turn-indicator ' + (turnLabel === 'Player 1' ? 'my-turn' : 'their-turn');
+
+  const coord = coordLabel(row, col);
+  if (shipSunk) {
+    addSpectatorLog('\ud83d\udca5 ' + attackerLabel + ' sunk ' + defenderLabel + '\'s ' + shipSunk + ' at ' + coord + '!', 'sunk');
+  } else if (hit) {
+    addSpectatorLog('\ud83d\udd25 ' + attackerLabel + ' hit ' + defenderLabel + ' at ' + coord, 'hit');
+  } else {
+    addSpectatorLog('\ud83d\udca7 ' + attackerLabel + ' missed at ' + coord, 'miss');
+  }
+  renderSpectatorBoards();
+}
+
+function onSpectatorGameOver(payload) {
+  const winnerLabel = (payload.winnerId === S.specP1Id) ? 'Player 1' : 'Player 2';
+  document.getElementById('spectator-status').textContent = '\ud83c\udfc6 ' + winnerLabel + ' wins!';
+  document.getElementById('spectator-turn').textContent   = 'Game over';
+  addSpectatorLog('\ud83c\udfc6 ' + winnerLabel + ' wins the game!', 'sunk');
+  document.getElementById('btn-spectator-new-game').style.display = 'inline-block';
+}
+
+function addSpectatorLog(msg, type) {
+  const log   = document.getElementById('spectator-log');
+  const entry = document.createElement('div');
+  entry.className   = 'log-entry' + (type ? ' log-' + type : '');
+  entry.textContent = msg;
+  log.insertBefore(entry, log.firstChild);
+  while (log.children.length > 15) log.removeChild(log.lastChild);
 }
 
 // ── JOIN SCREEN (manual code entry) ──────────────────────────────────────────
 
 function initJoinScreen() {
   showScreen('join');
-
-  const errEl  = document.getElementById('join-error');
-  const input  = document.getElementById('join-code-input');
+  const errEl = document.getElementById('join-error');
+  const input = document.getElementById('join-code-input');
   errEl.textContent = '';
   input.value       = '';
 
@@ -146,24 +256,26 @@ function initJoinScreen() {
     if (!code) { errEl.textContent = 'Please enter a room code.'; return; }
     await joinViaUrl(code);
   };
-
   document.getElementById('btn-back-home').onclick = initHomeScreen;
 }
 
-// ── JOIN via URL or manual code (Player 2) ────────────────────────────────────
+// ── JOIN via QR or manual code  –  used by BOTH players ──────────────────────
 
 async function joinViaUrl(code) {
   const errEl = document.getElementById('join-error');
-
   try {
     const room = await dbJoinRoom(code);
 
-    S.roomId     = room.id;
-    S.roomCode   = room.room_code;
-    S.playerNum  = room._playerNum || 2;
-    S.rules      = room.rules;
-    S.opponentId = room.player1_id;
+    S.roomId    = room.id;
+    S.roomCode  = room.room_code;
+    S.playerNum = room._playerNum;
+    S.rules     = room.rules;
+    S.mode      = 'player';
 
+    // Opponent ID: known immediately for P2, unknown for P1 until P2 broadcasts
+    S.opponentId = (S.playerNum === 2) ? room.player1_id : (room.player2_id || null);
+
+    HANDLERS.onPlayerJoined  = onOpponentJoined;
     HANDLERS.onShipsReady    = onOpponentShipsReady;
     HANDLERS.onMove          = onIncomingMove;
     HANDLERS.onGameOver      = onGameOver;
@@ -172,16 +284,22 @@ async function joinViaUrl(code) {
     rtSubscribe(S.roomId);
 
     if (!room._rejoin) {
-      // Tell Player 1 we're here
-      await rtBroadcast('player_joined', { playerId: S.playerId });
+      await rtBroadcast('player_joined', { playerId: S.playerId, playerNum: S.playerNum });
     }
 
-    // Check if game is already in battle phase (rejoin mid-game)
     if (room.status === 'battle' || room.status === 'finished') {
       await rejoinBattle(room);
-    } else {
-      initPlacementScreen();
+      return;
     }
+
+    // Check if opponent already marked ships_placed (P2 joining after P1 readied)
+    if (S.opponentId) {
+      const boards  = await dbGetBoards(S.roomId);
+      const oppBoard = boards.find(b => b.player_id === S.opponentId);
+      if (oppBoard && oppBoard.ships_placed) _opponentReady = true;
+    }
+
+    initPlacementScreen();
 
   } catch (err) {
     if (errEl) {
@@ -194,6 +312,12 @@ async function joinViaUrl(code) {
   }
 }
 
+// Called when the other player broadcasts player_joined
+function onOpponentJoined(payload) {
+  if (!S.opponentId) S.opponentId = payload.playerId;
+  if (S.phase === 'placing') updateOpponentStatus();
+}
+
 // ── SHIP PLACEMENT ────────────────────────────────────────────────────────────
 
 function initPlacementScreen() {
@@ -203,11 +327,12 @@ function initPlacementScreen() {
   S.placingIndex = 0;
   S.horizontal   = true;
   _myReady       = false;
-  _opponentReady = false;
+  // _opponentReady preserved if set via DB check in joinViaUrl
 
   showScreen('placement');
   renderShipList(0);
   renderPlacementGrid(S.myBoard, SHIPS[0], null, null, true);
+  updateOpponentStatus();
 
   const grid = document.getElementById('placement-grid');
 
@@ -230,44 +355,37 @@ function initPlacementScreen() {
   grid.onclick = (e) => {
     const cell = e.target.closest('[data-row]');
     if (!cell || S.placingIndex >= SHIPS.length) return;
-
     const row    = +cell.dataset.row;
     const col    = +cell.dataset.col;
     const result = placeShipOnBoard(S.myBoard, SHIPS[S.placingIndex], row, col, S.horizontal);
     if (!result) return;
-
     S.myBoard = result.board;
     S.myShips.push({ ...SHIPS[S.placingIndex], cells: result.cells, horizontal: S.horizontal, row, col });
     S.placingIndex++;
-
     renderShipList(S.placingIndex);
-
     if (S.placingIndex >= SHIPS.length) {
       renderPlacementGrid(S.myBoard, null, null, null, S.horizontal);
       document.getElementById('btn-ready').disabled         = false;
-      document.getElementById('placement-status').textContent = '✅ All ships placed! Press Ready when done.';
+      document.getElementById('placement-status').textContent = '\u2705 All ships placed! Press Ready when done.';
     } else {
       renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.hoverRow, S.hoverCol, S.horizontal);
     }
   };
 
-  // Rotate button
   document.getElementById('btn-rotate').onclick = () => {
     S.horizontal = !S.horizontal;
-    document.getElementById('orientation-label').textContent = S.horizontal ? 'Horizontal →' : 'Vertical ↓';
+    document.getElementById('orientation-label').textContent = S.horizontal ? 'Horizontal \u2192' : 'Vertical \u2193';
     if (S.placingIndex < SHIPS.length) {
       renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.hoverRow, S.hoverCol, S.horizontal);
     }
   };
 
-  // R key shortcut
   document.onkeydown = (e) => {
     if ((e.key === 'r' || e.key === 'R') && S.phase === 'placing') {
       document.getElementById('btn-rotate').click();
     }
   };
 
-  // Random placement
   document.getElementById('btn-random-place').onclick = () => {
     const result = randomPlaceAll();
     S.myBoard      = result.board;
@@ -276,37 +394,40 @@ function initPlacementScreen() {
     renderShipList(SHIPS.length);
     renderPlacementGrid(S.myBoard, null, null, null, S.horizontal);
     document.getElementById('btn-ready').disabled         = false;
-    document.getElementById('placement-status').textContent = '✅ Ships placed randomly!';
+    document.getElementById('placement-status').textContent = '\u2705 Ships placed randomly!';
   };
 
-  // Clear
   document.getElementById('btn-clear-ships').onclick = () => {
     S.myBoard      = createEmptyBoard();
     S.myShips      = [];
     S.placingIndex = 0;
+    _opponentReady = false;
     document.getElementById('btn-ready').disabled         = true;
     document.getElementById('placement-status').textContent = '';
     renderShipList(0);
     renderPlacementGrid(S.myBoard, SHIPS[0], null, null, S.horizontal);
   };
 
-  // Ready
   document.getElementById('btn-ready').onclick = handlePlayerReady;
-
-  updateOpponentStatus();
 }
 
 function updateOpponentStatus() {
   const statusEl = document.getElementById('placement-opponent-status');
   if (!statusEl) return;
-  statusEl.textContent = _opponentReady ? '✅ Opponent is ready!' : '⏳ Waiting for opponent to place ships…';
+  if (!S.opponentId) {
+    statusEl.textContent = '\u23f3 Waiting for opponent to join\u2026';
+  } else if (_opponentReady) {
+    statusEl.textContent = '\u2705 Opponent is ready!';
+  } else {
+    statusEl.textContent = '\u23f3 Opponent is placing their ships\u2026';
+  }
 }
 
 async function handlePlayerReady() {
   const btn = document.getElementById('btn-ready');
   btn.disabled    = true;
-  btn.textContent = '⏳ Waiting for opponent…';
-  document.getElementById('placement-status').textContent = '⏳ Waiting for opponent to finish…';
+  btn.textContent = '\u23f3 Waiting for opponent\u2026';
+  document.getElementById('placement-status').textContent = '\u23f3 Waiting for opponent to finish\u2026';
 
   await dbSaveBoard(S.roomId, S.playerId, S.myBoard, S.myShips);
   await rtBroadcast('ships_ready', { playerId: S.playerId });
@@ -324,39 +445,33 @@ async function onOpponentShipsReady() {
 // ── BATTLE – transition ───────────────────────────────────────────────────────
 
 async function transitionToBattle() {
-  // Fetch both boards from DB
-  const boards = await dbGetBoards(S.roomId);
-  const myEntry      = boards.find(b => b.player_id === S.playerId);
+  const boards        = await dbGetBoards(S.roomId);
+  const myEntry       = boards.find(b => b.player_id === S.playerId);
   const opponentEntry = boards.find(b => b.player_id !== S.playerId);
 
   if (!myEntry || !opponentEntry) {
-    setTimeout(transitionToBattle, 1500); // retry; DB may not be written yet
+    setTimeout(transitionToBattle, 1500);
     return;
   }
 
-  // Enemy real board used for local hit detection
   S.enemyRealBoard    = opponentEntry.board;
-  // Display board: blank — we mark as shots are fired
   S.enemyDisplayBoard = createEmptyBoard();
 
-  // Player 1 writes battle start to DB; both read current_turn from it
   if (S.playerNum === 1) {
-    await dbStartBattle(S.roomId, S.playerId); // P1 goes first
+    await dbStartBattle(S.roomId, S.playerId);
   }
 
-  // Small delay to ensure DB write is visible before read
   await new Promise(r => setTimeout(r, 600));
 
-  const room    = await dbGetRoom(S.roomId);
-  S.isMyTurn    = room.current_turn === S.playerId;
-  S.phase       = 'battle';
-  document.onkeydown = null; // remove placement key handler
+  const room = await dbGetRoom(S.roomId);
+  S.isMyTurn = (room.current_turn === S.playerId);
+  S.phase    = 'battle';
+  document.onkeydown = null;
   initBattleScreen();
 }
 
 async function rejoinBattle(room) {
-  // Re-fetch all boards and reconstruct display state from move log
-  const boards = await dbGetBoards(S.roomId);
+  const boards        = await dbGetBoards(S.roomId);
   const opponentEntry = boards.find(b => b.player_id !== S.playerId);
   const myEntry       = boards.find(b => b.player_id === S.playerId);
 
@@ -369,27 +484,18 @@ async function rejoinBattle(room) {
   S.enemyRealBoard    = opponentEntry.board;
   S.enemyDisplayBoard = createEmptyBoard();
 
-  // Replay shots to rebuild display boards from game_moves log
   try {
     const moves = await dbGetMoves(S.roomId);
-
-    if (moves) {
-      moves.forEach(m => {
-        if (m.player_id === S.playerId) {
-          // Shot I fired – mark on enemy display board
-          const cell = S.enemyRealBoard[m.row][m.col];
-          S.enemyDisplayBoard[m.row][m.col] = { shipId: cell.shipId, hit: true };
-        } else {
-          // Shot fired at me – mark on my board
-          S.myBoard = boards.find(b => b.player_id === S.playerId)?.board || createEmptyBoard();
-        }
-      });
-    }
+    moves.forEach(m => {
+      if (m.player_id === S.playerId) {
+        const cell = S.enemyRealBoard[m.row][m.col];
+        S.enemyDisplayBoard[m.row][m.col] = { shipId: cell.shipId, hit: true };
+      }
+    });
   } catch (_) {}
 
-  if (!S.myBoard) S.myBoard = myEntry.board;
-
-  S.isMyTurn = room.current_turn === S.playerId;
+  S.myBoard  = myEntry.board;
+  S.isMyTurn = (room.current_turn === S.playerId);
   S.phase    = 'battle';
   initBattleScreen();
 }
@@ -403,8 +509,8 @@ function initBattleScreen() {
 
   document.getElementById('rules-indicator').textContent =
     S.rules === 'classic'
-      ? '⚓ Classic – hit again on a hit'
-      : '🔄 Modern – turns always alternate';
+      ? '\u2693 Classic \u2013 hit again on a hit'
+      : '\ud83d\udd04 Modern \u2013 turns always alternate';
 
   addBattleLog('Game started!', 'info');
   addBattleLog(S.isMyTurn ? 'You go first.' : 'Opponent goes first.', 'info');
@@ -412,60 +518,43 @@ function initBattleScreen() {
 
 function refreshBattleBoards() {
   renderGrid('my-board', S.myBoard, { showShips: true });
-  renderEnemyGrid(
-    'enemy-board',
-    S.enemyDisplayBoard,
-    S.isMyTurn,
-    !S.isMyTurn,
-    handleFire
-  );
+  renderEnemyGrid('enemy-board', S.enemyDisplayBoard, S.isMyTurn, !S.isMyTurn, handleFire);
 }
 
 // ── BATTLE – firing ───────────────────────────────────────────────────────────
 
 async function handleFire(row, col) {
   if (!S.isMyTurn) return;
-  if (S.enemyDisplayBoard[row][col].hit) return; // already fired here
+  if (S.enemyDisplayBoard[row][col].hit) return;
 
-  // Run hit detection locally against the fetched enemy board
   const result = processShot(S.enemyRealBoard, row, col);
   if (result.alreadyFired) return;
 
   S.enemyRealBoard = result.board;
-
-  // Update display board
   S.enemyDisplayBoard[row][col] = {
     shipId: result.hit ? S.enemyRealBoard[row][col].shipId : null,
     hit: true,
   };
 
-  // Determine next turn
   let nextTurn;
   if (S.rules === 'classic' && result.hit && !result.gameOver) {
-    nextTurn   = S.playerId;  // hit again!
+    nextTurn   = S.playerId;
     S.isMyTurn = true;
   } else {
     nextTurn   = S.opponentId;
     S.isMyTurn = false;
   }
 
-  // Persist & broadcast
   await Promise.all([
     dbRecordMove(S.roomId, S.playerId, row, col, result.hit, result.shipSunk),
     rtBroadcast('move', {
-      attackerId: S.playerId,
-      row, col,
-      hit:       result.hit,
-      shipSunk:  result.shipSunk,
-      gameOver:  result.gameOver,
-      nextTurn,
+      attackerId: S.playerId, row, col,
+      hit: result.hit, shipSunk: result.shipSunk,
+      gameOver: result.gameOver, nextTurn,
     }),
   ]);
 
-  if (!result.gameOver) {
-    await dbUpdateTurn(S.roomId, nextTurn);
-  }
-
+  if (!result.gameOver) await dbUpdateTurn(S.roomId, nextTurn);
   updateBattleUI(row, col, result, true);
 
   if (result.gameOver) {
@@ -479,39 +568,24 @@ async function handleFire(row, col) {
 
 function onIncomingMove(payload) {
   const { row, col, hit, shipSunk, gameOver, nextTurn } = payload;
-
-  // Mark the shot on my own board
   if (S.myBoard[row][col]) S.myBoard[row][col].hit = true;
-
   S.isMyTurn = (nextTurn === S.playerId);
-
   updateBattleUI(row, col, { hit, shipSunk, gameOver }, false);
-
   if (gameOver) showGameOver(false);
 }
 
 function updateBattleUI(row, col, result, iAttacked) {
   refreshBattleBoards();
   setTurnIndicator(S.isMyTurn);
-
   const coord = coordLabel(row, col);
-
   if (iAttacked) {
-    if (result.shipSunk) {
-      addBattleLog(`💥 You sunk their ${result.shipSunk} at ${coord}!`, 'sunk');
-    } else if (result.hit) {
-      addBattleLog(`🔥 Hit at ${coord}!${S.rules === 'classic' ? ' Fire again!' : ''}`, 'hit');
-    } else {
-      addBattleLog(`💧 Miss at ${coord}.`, 'miss');
-    }
+    if (result.shipSunk)       addBattleLog('\ud83d\udca5 You sunk their ' + result.shipSunk + ' at ' + coord + '!', 'sunk');
+    else if (result.hit)       addBattleLog('\ud83d\udd25 Hit at ' + coord + '!' + (S.rules === 'classic' ? ' Fire again!' : ''), 'hit');
+    else                       addBattleLog('\ud83d\udca7 Miss at ' + coord + '.', 'miss');
   } else {
-    if (result.shipSunk) {
-      addBattleLog(`💀 Opponent sunk your ${result.shipSunk} at ${coord}!`, 'sunk');
-    } else if (result.hit) {
-      addBattleLog(`🔥 Opponent hit at ${coord}!`, 'hit');
-    } else {
-      addBattleLog(`💧 Opponent missed at ${coord}.`, 'miss');
-    }
+    if (result.shipSunk)       addBattleLog('\ud83d\udc80 Opponent sunk your ' + result.shipSunk + ' at ' + coord + '!', 'sunk');
+    else if (result.hit)       addBattleLog('\ud83d\udd25 Opponent hit at ' + coord + '!', 'hit');
+    else                       addBattleLog('\ud83d\udca7 Opponent missed at ' + coord + '.', 'miss');
   }
 }
 
@@ -522,14 +596,14 @@ function onGameOver(payload) {
 }
 
 function showGameOver(won) {
-  if (S.phase === 'gameover') return; // prevent double-trigger
+  if (S.phase === 'gameover') return;
   S.phase = 'gameover';
   rtUnsubscribe();
   showScreen('gameover');
 
   document.getElementById('gameover-result').innerHTML = won
-    ? '<span class="win">🏆</span><p>You Win!<br><small>All enemy ships sunk.</small></p>'
-    : '<span class="loss">💀</span><p>You Lose!<br><small>Your fleet was destroyed.</small></p>';
+    ? '<span class="win">\ud83c\udfc6</span><p>You Win!<br><small>All enemy ships sunk.</small></p>'
+    : '<span class="loss">\ud83d\udc80</span><p>You Lose!<br><small>Your fleet was destroyed.</small></p>';
 
   document.getElementById('btn-play-again').onclick = () => {
     window.location.href = location.href.split('?')[0];
@@ -541,8 +615,7 @@ function showGameOver(won) {
 function onPresenceLeave(leftPresences) {
   const opponentLeft = leftPresences.some(p => p.playerId === S.opponentId);
   if (!opponentLeft || S.phase === 'gameover') return;
-
   if (S.phase === 'battle') {
-    addBattleLog('⚠️ Opponent disconnected. Waiting for reconnect…', 'info');
+    addBattleLog('\u26a0\ufe0f Opponent disconnected. Waiting for reconnect\u2026', 'info');
   }
 }

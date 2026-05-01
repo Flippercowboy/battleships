@@ -19,11 +19,10 @@ function getOrCreatePlayerId() {
 
 async function dbCreateRoom(rules) {
   const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-  const playerId = getOrCreatePlayerId();
 
   const { data, error } = await _sb
     .from('game_rooms')
-    .insert({ room_code: roomCode, rules, player1_id: playerId, status: 'waiting' })
+    .insert({ room_code: roomCode, rules, status: 'waiting' })
     .select()
     .single();
 
@@ -33,7 +32,7 @@ async function dbCreateRoom(rules) {
 
 async function dbJoinRoom(roomCode) {
   const playerId = getOrCreatePlayerId();
-  const code = roomCode.toUpperCase().trim();
+  const code     = roomCode.toUpperCase().trim();
 
   const { data: room, error: fetchErr } = await _sb
     .from('game_rooms')
@@ -44,26 +43,38 @@ async function dbJoinRoom(roomCode) {
   if (fetchErr) throw new Error('Database error: ' + fetchErr.message);
   if (!room)    throw new Error('Room not found. Check the code and try again.');
 
-  // Handle rejoin (same player refreshing)
-  if (room.player1_id === playerId) {
-    return { ...room, _playerNum: 1, _rejoin: true };
+  // Rejoin detection — same player refreshing the page
+  if (room.player1_id === playerId) return { ...room, _playerNum: 1, _rejoin: true };
+  if (room.player2_id === playerId) return { ...room, _playerNum: 2, _rejoin: true };
+
+  if (room.status === 'finished') throw new Error('That game has already finished.');
+
+  // Atomically claim player1 slot if free
+  if (!room.player1_id) {
+    const { data: claimed } = await _sb
+      .from('game_rooms')
+      .update({ player1_id: playerId, updated_at: new Date().toISOString() })
+      .eq('id', room.id)
+      .is('player1_id', null)
+      .select()
+      .maybeSingle();
+    if (claimed) return { ...claimed, _playerNum: 1, _rejoin: false };
+    // Race: someone else just claimed P1 — fall through to try P2
   }
-  if (room.player2_id === playerId) {
-    return { ...room, _playerNum: 2, _rejoin: true };
+
+  // Atomically claim player2 slot if free
+  if (!room.player2_id) {
+    const { data: claimed } = await _sb
+      .from('game_rooms')
+      .update({ player2_id: playerId, status: 'placing', updated_at: new Date().toISOString() })
+      .eq('id', room.id)
+      .is('player2_id', null)
+      .select()
+      .maybeSingle();
+    if (claimed) return { ...claimed, _playerNum: 2, _rejoin: false };
   }
 
-  if (room.player2_id)             throw new Error('Room is already full.');
-  if (room.status !== 'waiting')   throw new Error('Game has already started.');
-
-  const { data: updated, error: updateErr } = await _sb
-    .from('game_rooms')
-    .update({ player2_id: playerId, status: 'placing', updated_at: new Date().toISOString() })
-    .eq('id', room.id)
-    .select()
-    .single();
-
-  if (updateErr) throw new Error('Could not join room: ' + updateErr.message);
-  return { ...updated, _playerNum: 2, _rejoin: false };
+  throw new Error('Room is full. Both player slots are taken.');
 }
 
 async function dbGetRoom(roomId) {

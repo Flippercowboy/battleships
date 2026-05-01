@@ -12,6 +12,7 @@
   <div id="screen-home" class="screen active">
     <div class="screen-inner center-content">
       <h1 class="title">⚓ BATTLESHIPS</h1>
+      <p class="home-subtitle">Open on a laptop — both players scan the QR to play on their phones</p>
 
       <div class="rules-section">
         <h2 class="section-label">Choose Rules</h2>
@@ -30,7 +31,7 @@
       </div>
 
       <div class="home-buttons">
-        <button id="btn-new-game" class="btn-primary">New Game</button>
+        <button id="btn-host-game" class="btn-primary">Host Game</button>
         <button id="btn-join-game" class="btn-secondary">Join with Code</button>
       </div>
     </div>
@@ -130,6 +131,32 @@
       </div>
 
       <div id="battle-log" class="battle-log"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ SPECTATOR SCREEN (laptop) -->
+  <div id="screen-spectator" class="screen">
+    <div class="screen-inner">
+      <div class="spectator-header">
+        <h1 class="title compact">⚓ BATTLESHIPS — LIVE</h1>
+        <div id="spectator-status" class="spectator-status-bar"></div>
+        <div id="spectator-turn" class="turn-indicator their-turn"></div>
+      </div>
+
+      <div class="spectator-layout">
+        <div class="spectator-board-wrap">
+          <h3 class="board-label spectator-p1">Player 1's Fleet</h3>
+          <div id="spec-p1-board" class="grid"></div>
+        </div>
+        <div class="spectator-divider">⚔️</div>
+        <div class="spectator-board-wrap">
+          <h3 class="board-label spectator-p2">Player 2's Fleet</h3>
+          <div id="spec-p2-board" class="grid"></div>
+        </div>
+      </div>
+
+      <div id="spectator-log" class="battle-log spectator-log"></div>
+      <button id="btn-spectator-new-game" class="btn-primary" style="display:none;margin-top:16px">New Game</button>
     </div>
   </div>
 

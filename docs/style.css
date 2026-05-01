@@ -361,6 +361,59 @@ kbd {
 .gameover-result .loss { display: block; font-size: 4rem; }
 .gameover-result p { font-size: 1.1rem; color: var(--text-muted); margin-top: 8px; }
 
+/* ── Home subtitle ──────────────────────────────────────────────────────────────────── */
+.home-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 340px;
+  line-height: 1.5;
+}
+
+/* ── Spectator screen ───────────────────────────────────────────────────────────── */
+.spectator-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.spectator-status-bar {
+  flex: 1;
+  padding: 8px 16px;
+  border-radius: 50px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: rgba(26,159,212,0.1);
+  border: 1px solid rgba(26,159,212,0.3);
+  color: var(--ocean);
+  text-align: center;
+}
+
+.spectator-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.spectator-board-wrap { display: flex; flex-direction: column; gap: 6px; }
+
+.spectator-divider {
+  font-size: 2rem;
+  align-self: center;
+  color: var(--gold);
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.board-label.spectator-p1 { color: var(--ocean); }
+.board-label.spectator-p2 { color: var(--gold); }
+
+.spectator-log { max-height: 220px; }
+
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
   :root { --cell-size: clamp(24px, 8.5vw, 32px); }
