@@ -21,6 +21,8 @@ const S = {
   horizontal:       true,
   hoverRow:         null,
   hoverCol:         null,
+  stagingRow:       null,
+  stagingCol:       null,
 
   // Battle phase
   enemyRealBoard:    null,
