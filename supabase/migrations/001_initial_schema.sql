@@ -85,15 +85,20 @@ ALTER PUBLICATION supabase_realtime ADD TABLE game_rooms;
 -- Use the SQL inside the $$ block as the function body via supabase-js.
 -- ─────────────────────────────────────────────────────────────────────────────
 
-SELECT cron.schedule(
-  'delete-old-game-rooms',
-  '0 3 * * *',   -- 3:00 AM UTC every day
-  $$
-    DELETE FROM game_rooms
-    WHERE created_at < now() - INTERVAL '24 hours';
-    -- CASCADE deletes linked game_boards and game_moves automatically
-  $$
-);
+DO $$
+BEGIN
+  PERFORM cron.schedule(
+    'delete-old-game-rooms',
+    '0 3 * * *',
+    $cron$
+      DELETE FROM game_rooms
+      WHERE created_at < now() - INTERVAL '24 hours';
+    $cron$
+  );
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pg_cron not available (free tier) – skipping cron job. Set up a scheduled Edge Function instead.';
+END;
+$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Optional: verify cron jobs

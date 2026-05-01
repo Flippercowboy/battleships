@@ -224,8 +224,8 @@ function coordLabel(row, col) {
 // Renders both live boards for the host/spectator screen.
 
 function renderSpectatorBoards() {
-  if (S.specP1Board) renderEnemyGrid('spec-p1-board', S.specP1Board, false, true, null);
-  if (S.specP2Board) renderEnemyGrid('spec-p2-board', S.specP2Board, false, true, null);
+  if (S.specP1Board) renderGrid('spec-p1-board', S.specP1Board, { showShips: true, locked: true });
+  if (S.specP2Board) renderGrid('spec-p2-board', S.specP2Board, { showShips: true, locked: true });
 }
 
 // ── Ship placement flash ──────────────────────────────────────────────────────

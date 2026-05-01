@@ -38,8 +38,10 @@ const S = {
   specReadyCount:    0,
 };
 
-let _myReady       = false;
-let _opponentReady = false;
+let _myReady             = false;
+let _opponentReady       = false;
+let _placementKeyHandler = null;  // stored so it can be properly removed
+let _hoverRafPending     = false; // rAF gate for hover re-renders
 
 // ── Kick off ──────────────────────────────────────────────────────────────────
 
@@ -194,9 +196,19 @@ function onSpectatorShipsReady(payload) {
   const label = payload.playerId === S.specP1Id ? 'Player 1' : 'Player 2';
   addSpectatorLog(label + ' placed their ships \u2713');
   const statusEl = document.getElementById('spectator-status');
-  statusEl.textContent = S.specReadyCount >= 2
-    ? '\u2694\ufe0f  Battle in progress!'
-    : '\u23f3 ' + label + ' is ready \u2013 waiting for other player\u2026';
+  if (S.specReadyCount >= 2) {
+    statusEl.textContent = '\u2694\ufe0f  Battle in progress!';
+    // Fetch real ship boards so spectator can see both fleets
+    dbGetBoards(S.roomId).then(boards => {
+      const p1 = boards.find(b => b.player_id === S.specP1Id);
+      const p2 = boards.find(b => b.player_id === S.specP2Id);
+      if (p1) S.specP1Board = p1.board;
+      if (p2) S.specP2Board = p2.board;
+      renderSpectatorBoards();
+    }).catch(() => {});
+  } else {
+    statusEl.textContent = '\u23f3 ' + label + ' is ready \u2013 waiting for other player\u2026';
+  }
 }
 
 function onSpectatorMove(payload) {
@@ -205,9 +217,11 @@ function onSpectatorMove(payload) {
   const attackerLabel = isP1Attacking ? 'Player 1' : 'Player 2';
   const defenderLabel = isP1Attacking ? 'Player 2' : 'Player 1';
 
-  // Mark shot on the defender's display board
+  // Mark shot — preserves ship data so spectator sees ships + hit/miss markers
   const defBoard = isP1Attacking ? S.specP2Board : S.specP1Board;
-  defBoard[row][col] = { shipId: hit ? 'hit' : null, hit: true };
+  if (defBoard && defBoard[row] && defBoard[row][col]) {
+    defBoard[row][col].hit = true;
+  }
 
   // Update turn indicator
   const turnLabel = (nextTurn === S.specP1Id) ? 'Player 1' : 'Player 2';
@@ -346,28 +360,23 @@ function initPlacementScreen() {
   const grid    = document.getElementById('placement-grid');
   const btnConfirm = document.getElementById('btn-confirm-place');
 
-  function updateConfirmButton() {
-    const canConfirm = S.stagingRow !== null &&
-                       isValidPlacement(
-                         S.myBoard,
-                         getShipCells(S.stagingRow, S.stagingCol, SHIPS[S.placingIndex].size, S.horizontal)
-                       );
-    btnConfirm.disabled    = !canConfirm;
-    btnConfirm.textContent = canConfirm
-      ? '\u2713 Place ' + SHIPS[S.placingIndex].name
-      : '\u2713 Place Ship';
-  }
-
-  function updatePlacementStatus() {
-    const statusEl = document.getElementById('placement-status');
+  // Single function: updates both the confirm button and the status hint together
+  function updatePlacementUI() {
     if (S.placingIndex >= SHIPS.length) return;
+    const statusEl = document.getElementById('placement-status');
     if (S.stagingRow === null) {
-      statusEl.textContent = 'Tap a cell to position your ' + SHIPS[S.placingIndex].name + '.';
+      btnConfirm.disabled    = true;
+      btnConfirm.textContent = '\u2713 Place Ship';
+      statusEl.textContent   = 'Tap a cell to position your ' + SHIPS[S.placingIndex].name + '.';
     } else {
       const valid = isValidPlacement(
         S.myBoard,
         getShipCells(S.stagingRow, S.stagingCol, SHIPS[S.placingIndex].size, S.horizontal)
       );
+      btnConfirm.disabled    = !valid;
+      btnConfirm.textContent = valid
+        ? '\u2713 Place ' + SHIPS[S.placingIndex].name
+        : '\u2713 Place Ship';
       statusEl.textContent = valid
         ? '\u2713 Press \u201cPlace ' + SHIPS[S.placingIndex].name + '\u201d to lock it in.'
         : '\u274c Invalid position \u2014 tap a different cell.';
@@ -381,18 +390,28 @@ function initPlacementScreen() {
     S.stagingRow = +cell.dataset.row;
     S.stagingCol = +cell.dataset.col;
     renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.stagingRow, S.stagingCol, S.horizontal, true);
-    updateConfirmButton();
-    updatePlacementStatus();
+    updatePlacementUI();
   };
 
   // Mouse hover (desktop): only moves preview if nothing is staged yet
   grid.onmouseover = (e) => {
-    if (S.stagingRow !== null) return; // already selected, don't chase mouse
+    if (S.stagingRow !== null) return;
     const cell = e.target.closest('[data-row]');
     if (!cell || S.placingIndex >= SHIPS.length) return;
-    S.hoverRow = +cell.dataset.row;
-    S.hoverCol = +cell.dataset.col;
-    renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.hoverRow, S.hoverCol, S.horizontal, false);
+    const r = +cell.dataset.row;
+    const c = +cell.dataset.col;
+    if (r === S.hoverRow && c === S.hoverCol) return; // no change, skip
+    S.hoverRow = r;
+    S.hoverCol = c;
+    if (!_hoverRafPending) {
+      _hoverRafPending = true;
+      requestAnimationFrame(() => {
+        _hoverRafPending = false;
+        if (S.stagingRow === null && S.placingIndex < SHIPS.length) {
+          renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.hoverRow, S.hoverCol, S.horizontal, false);
+        }
+      });
+    }
   };
 
   grid.onmouseleave = () => {
@@ -412,8 +431,8 @@ function initPlacementScreen() {
 
     Audio.playPlace();
     S.myBoard = result.board;
+    const placedCells = result.cells; // save before index advances
     S.myShips.push({ ...SHIPS[S.placingIndex], cells: result.cells, horizontal: S.horizontal, row: S.stagingRow, col: S.stagingCol });
-    flashPlacedCells(result.cells);
 
     // Reset staging for next ship
     S.stagingRow = null;
@@ -432,10 +451,9 @@ function initPlacementScreen() {
       document.getElementById('placement-status').textContent = '\u2705 All ships placed! Press Ready when done.';
     } else {
       renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], null, null, S.horizontal, false);
-      btnConfirm.disabled    = true;
-      btnConfirm.textContent = '\u2713 Place Ship';
-      updatePlacementStatus();
+      updatePlacementUI();
     }
+    flashPlacedCells(placedCells); // flash AFTER grid re-render so elements exist
   };
 
   document.getElementById('btn-rotate').onclick = () => {
@@ -446,16 +464,16 @@ function initPlacementScreen() {
       const previewRow = isStaging ? S.stagingRow : S.hoverRow;
       const previewCol = isStaging ? S.stagingCol : S.hoverCol;
       renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], previewRow, previewCol, S.horizontal, isStaging);
-      if (isStaging) updateConfirmButton();
-      updatePlacementStatus();
+      updatePlacementUI();
     }
   };
 
-  document.onkeydown = (e) => {
+  _placementKeyHandler = (e) => {
     if ((e.key === 'r' || e.key === 'R') && S.phase === 'placing') {
       document.getElementById('btn-rotate').click();
     }
   };
+  document.addEventListener('keydown', _placementKeyHandler);
 
   document.getElementById('btn-random-place').onclick = () => {
     const result = randomPlaceAll();
@@ -480,7 +498,6 @@ function initPlacementScreen() {
     S.stagingCol   = null;
     S.hoverRow     = null;
     S.hoverCol     = null;
-    _opponentReady = false;
     btnConfirm.disabled    = true;
     btnConfirm.textContent = '\u2713 Place Ship';
     document.getElementById('btn-ready').disabled         = true;
@@ -542,12 +559,19 @@ async function transitionToBattle() {
     await dbStartBattle(S.roomId, S.playerId);
   }
 
-  await new Promise(r => setTimeout(r, 600));
-
-  const room = await dbGetRoom(S.roomId);
-  S.isMyTurn = (room.current_turn === S.playerId);
+  // Poll until P1's dbStartBattle write is visible (avoids race where P2 reads null current_turn)
+  let room;
+  for (let i = 0; i < 15; i++) {
+    room = await dbGetRoom(S.roomId);
+    if (room.current_turn) break;
+    await new Promise(r => setTimeout(r, 400));
+  }
+  S.isMyTurn = !!(room && room.current_turn === S.playerId);
   S.phase    = 'battle';
-  document.onkeydown = null;
+  if (_placementKeyHandler) {
+    document.removeEventListener('keydown', _placementKeyHandler);
+    _placementKeyHandler = null;
+  }
   initBattleScreen();
 }
 
@@ -569,8 +593,14 @@ async function rejoinBattle(room) {
     const moves = await dbGetMoves(S.roomId);
     moves.forEach(m => {
       if (m.player_id === S.playerId) {
+        // My shots on the enemy board
         const cell = S.enemyRealBoard[m.row][m.col];
         S.enemyDisplayBoard[m.row][m.col] = { shipId: cell.shipId, hit: true };
+      } else {
+        // Opponent's shots on my board — restore hit markers
+        if (S.myBoard[m.row] && S.myBoard[m.row][m.col]) {
+          S.myBoard[m.row][m.col].hit = true;
+        }
       }
     });
   } catch (_) {}
