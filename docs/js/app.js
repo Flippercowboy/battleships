@@ -333,7 +333,7 @@ function initPlacementScreen() {
 
   showScreen('placement');
   renderShipList(0);
-  renderPlacementGrid(S.myBoard, SHIPS[0], null, null, true);
+  renderPlacementGrid(S.myBoard, SHIPS[0], null, null, true, false);
   updateOpponentStatus();
   document.getElementById('placement-status').textContent = 'Tap a cell to position your ' + SHIPS[0].name + '.';
 
@@ -380,7 +380,7 @@ function initPlacementScreen() {
     if (!cell || S.placingIndex >= SHIPS.length) return;
     S.stagingRow = +cell.dataset.row;
     S.stagingCol = +cell.dataset.col;
-    renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.stagingRow, S.stagingCol, S.horizontal);
+    renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.stagingRow, S.stagingCol, S.horizontal, true);
     updateConfirmButton();
     updatePlacementStatus();
   };
@@ -392,7 +392,7 @@ function initPlacementScreen() {
     if (!cell || S.placingIndex >= SHIPS.length) return;
     S.hoverRow = +cell.dataset.row;
     S.hoverCol = +cell.dataset.col;
-    renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.hoverRow, S.hoverCol, S.horizontal);
+    renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], S.hoverRow, S.hoverCol, S.horizontal, false);
   };
 
   grid.onmouseleave = () => {
@@ -400,11 +400,7 @@ function initPlacementScreen() {
     S.hoverRow = null;
     S.hoverCol = null;
     if (S.placingIndex < SHIPS.length) {
-      renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], null, null, S.horizontal);
-    }
-  };
-
-  // Confirm button: locks the staged ship onto the board
+      renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], null, null, S.horizontal, false);
   btnConfirm.onclick = () => {
     if (S.stagingRow === null || S.placingIndex >= SHIPS.length) return;
     const result = placeShipOnBoard(S.myBoard, SHIPS[S.placingIndex], S.stagingRow, S.stagingCol, S.horizontal);
@@ -425,16 +421,9 @@ function initPlacementScreen() {
     renderShipList(S.placingIndex);
 
     if (S.placingIndex >= SHIPS.length) {
-      renderPlacementGrid(S.myBoard, null, null, null, S.horizontal);
-      btnConfirm.disabled    = true;
-      btnConfirm.textContent = '\u2713 Place Ship';
-      document.getElementById('btn-ready').disabled         = false;
-      document.getElementById('placement-status').textContent = '\u2705 All ships placed! Press Ready when done.';
+      renderPlacementGrid(S.myBoard, null, null, null, S.horizontal, false);
     } else {
-      renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], null, null, S.horizontal);
-      btnConfirm.disabled    = true;
-      btnConfirm.textContent = '\u2713 Place Ship';
-      updatePlacementStatus();
+      renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], null, null, S.horizontal, false);
     }
   };
 
@@ -442,11 +431,11 @@ function initPlacementScreen() {
     S.horizontal = !S.horizontal;
     document.getElementById('orientation-label').textContent = S.horizontal ? 'Horizontal \u2192' : 'Vertical \u2193';
     if (S.placingIndex < SHIPS.length) {
-      // Re-render with current staging/hover position after rotation
-      const previewRow = S.stagingRow !== null ? S.stagingRow : S.hoverRow;
-      const previewCol = S.stagingCol !== null ? S.stagingCol : S.hoverCol;
-      renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], previewRow, previewCol, S.horizontal);
-      if (S.stagingRow !== null) updateConfirmButton();
+      const isStaging  = S.stagingRow !== null;
+      const previewRow = isStaging ? S.stagingRow : S.hoverRow;
+      const previewCol = isStaging ? S.stagingCol : S.hoverCol;
+      renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], previewRow, previewCol, S.horizontal, isStaging);
+      if (isStaging) updateConfirmButton();
       updatePlacementStatus();
     }
   };
@@ -467,9 +456,7 @@ function initPlacementScreen() {
     btnConfirm.disabled    = true;
     btnConfirm.textContent = '\u2713 Place Ship';
     renderShipList(SHIPS.length);
-    renderPlacementGrid(S.myBoard, null, null, null, S.horizontal);
-    document.getElementById('btn-ready').disabled         = false;
-    document.getElementById('placement-status').textContent = '\u2705 Ships placed randomly!';
+    renderPlacementGrid(S.myBoard, null, null, null, S.horizontal, false);
   };
 
   document.getElementById('btn-clear-ships').onclick = () => {
@@ -486,10 +473,7 @@ function initPlacementScreen() {
     document.getElementById('btn-ready').disabled         = true;
     document.getElementById('placement-status').textContent = 'Tap a cell to position your ' + SHIPS[0].name + '.';
     renderShipList(0);
-    renderPlacementGrid(S.myBoard, SHIPS[0], null, null, S.horizontal);
-  };
-
-  document.getElementById('btn-ready').onclick = handlePlayerReady;
+    renderPlacementGrid(S.myBoard, SHIPS[0], null, null, S.horizontal, false);
 }
 
 function updateOpponentStatus() {

@@ -112,16 +112,16 @@ function renderEnemyGrid(containerId, displayBoard, clickable, locked, onCellCli
 // stagingRow/Col = cell the player tapped/selected → staging (bright gold, awaiting confirm)
 // The staging position takes precedence over hover.
 
-function renderPlacementGrid(board, placingShip, previewRow, previewCol, horizontal) {
+// isStaging=true  → gold 'staging' colour (player has tapped, not yet confirmed)
+// isStaging=false → green 'preview-ok' / red 'preview-bad' (hover preview)
+function renderPlacementGrid(board, placingShip, previewRow, previewCol, horizontal, isStaging) {
   const container = document.getElementById('placement-grid');
   container.innerHTML = '';
 
-  // Determine whether the preview position is the staged (confirmed-pending) one
-  const isStaged = (S && S.stagingRow !== null && S.stagingRow === previewRow && S.stagingCol === previewCol);
-
   let previewCells = new Set();
   let previewValid = false;
-  if (placingShip && previewRow !== null && previewCol !== null) {
+  if (placingShip && previewRow !== null && previewRow !== undefined &&
+      previewCol !== null && previewCol !== undefined) {
     const cells = getShipCells(previewRow, previewCol, placingShip.size, horizontal);
     previewValid = isValidPlacement(board, cells);
     cells.forEach(({ row, col }) => previewCells.add(`${row},${col}`));
@@ -142,9 +142,9 @@ function renderPlacementGrid(board, placingShip, previewRow, previewCol, horizon
       if (cell.shipId) {
         classes.push('has-ship');
       } else if (inPrev) {
-        if (isStaged && previewValid)      classes.push('staging');
-        else if (!isStaged && previewValid) classes.push('preview-ok');
-        else                                classes.push('preview-bad');
+        if (isStaging && previewValid)       classes.push('staging');
+        else if (!isStaging && previewValid) classes.push('preview-ok');
+        else                                 classes.push('preview-bad');
       }
 
       const div = el('div', classes.join(' '));
