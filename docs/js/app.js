@@ -401,6 +401,10 @@ function initPlacementScreen() {
     S.hoverCol = null;
     if (S.placingIndex < SHIPS.length) {
       renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], null, null, S.horizontal, false);
+    }
+  };
+
+  // Confirm button: locks the staged ship onto the board
   btnConfirm.onclick = () => {
     if (S.stagingRow === null || S.placingIndex >= SHIPS.length) return;
     const result = placeShipOnBoard(S.myBoard, SHIPS[S.placingIndex], S.stagingRow, S.stagingCol, S.horizontal);
@@ -422,8 +426,15 @@ function initPlacementScreen() {
 
     if (S.placingIndex >= SHIPS.length) {
       renderPlacementGrid(S.myBoard, null, null, null, S.horizontal, false);
+      btnConfirm.disabled    = true;
+      btnConfirm.textContent = '\u2713 Place Ship';
+      document.getElementById('btn-ready').disabled         = false;
+      document.getElementById('placement-status').textContent = '\u2705 All ships placed! Press Ready when done.';
     } else {
       renderPlacementGrid(S.myBoard, SHIPS[S.placingIndex], null, null, S.horizontal, false);
+      btnConfirm.disabled    = true;
+      btnConfirm.textContent = '\u2713 Place Ship';
+      updatePlacementStatus();
     }
   };
 
@@ -457,6 +468,8 @@ function initPlacementScreen() {
     btnConfirm.textContent = '\u2713 Place Ship';
     renderShipList(SHIPS.length);
     renderPlacementGrid(S.myBoard, null, null, null, S.horizontal, false);
+    document.getElementById('btn-ready').disabled         = false;
+    document.getElementById('placement-status').textContent = '\u2705 Ships placed randomly!';
   };
 
   document.getElementById('btn-clear-ships').onclick = () => {
@@ -474,6 +487,9 @@ function initPlacementScreen() {
     document.getElementById('placement-status').textContent = 'Tap a cell to position your ' + SHIPS[0].name + '.';
     renderShipList(0);
     renderPlacementGrid(S.myBoard, SHIPS[0], null, null, S.horizontal, false);
+  };
+
+  document.getElementById('btn-ready').onclick = handlePlayerReady;
 }
 
 function updateOpponentStatus() {
