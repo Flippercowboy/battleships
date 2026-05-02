@@ -30,6 +30,21 @@ async function dbCreateRoom(rules) {
   return data;
 }
 
+// Creates a room AND claims the P1 slot in one shot (for Play on this Device mode).
+async function dbCreateAndJoinRoom(rules) {
+  const playerId = getOrCreatePlayerId();
+  const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+  const { data, error } = await _sb
+    .from('game_rooms')
+    .insert({ room_code: roomCode, rules, status: 'waiting', player1_id: playerId })
+    .select()
+    .single();
+
+  if (error) throw new Error('Could not create room: ' + error.message);
+  return { ...data, _playerNum: 1, _rejoin: false };
+}
+
 async function dbJoinRoom(roomCode) {
   const playerId = getOrCreatePlayerId();
   const code     = roomCode.toUpperCase().trim();

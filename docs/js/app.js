@@ -74,7 +74,7 @@ function initHomeScreen() {
   });
 
   document.getElementById('btn-host-game').onclick = handleHostGame;
-  document.getElementById('btn-join-game').onclick = initJoinScreen;
+  document.getElementById('btn-join-game').onclick = handlePlayerGame;
 }
 
 // ── HOST GAME (Laptop display) ─────────────────────────────────────────────────
@@ -257,7 +257,71 @@ function addSpectatorLog(msg, type) {
   while (log.children.length > 15) log.removeChild(log.lastChild);
 }
 
-// ── JOIN SCREEN (manual code entry) ──────────────────────────────────────────
+// ── PLAYER GAME (Play on this Device – creates room and plays as P1) ──────────
+
+async function handlePlayerGame() {
+  const btn = document.getElementById('btn-join-game');
+  btn.disabled    = true;
+  btn.textContent = 'Creating\u2026';
+
+  try {
+    const room = await dbCreateAndJoinRoom(S.rules);
+
+    S.roomId    = room.id;
+    S.roomCode  = room.room_code;
+    S.playerNum = 1;
+    S.rules     = room.rules;
+    S.mode      = 'player';
+    S.opponentId = null;
+
+    HANDLERS.onPlayerJoined  = (payload) => {
+      // P2 just joined — save their ID and move to placement
+      if (!S.opponentId) S.opponentId = payload.playerId;
+      updateLobbyJoinCount(2); // brief "Both joined!" flash
+      setTimeout(initPlacementScreen, 800);
+    };
+    HANDLERS.onShipsReady    = onOpponentShipsReady;
+    HANDLERS.onMove          = onIncomingMove;
+    HANDLERS.onGameOver      = onGameOver;
+    HANDLERS.onPresenceLeave = onPresenceLeave;
+
+    rtSubscribe(S.roomId);
+
+    // Show the lobby with QR code for P2 to scan
+    S.phase = 'lobby';
+    showScreen('lobby');
+    document.getElementById('lobby-heading').textContent = 'Share this code with Player 2';
+    generateQR(room.room_code);
+    const badge = document.getElementById('rules-badge');
+    badge.textContent = S.rules === 'classic'
+      ? '\u2693 Classic Rules \u2013 hit again on a hit'
+      : '\ud83d\udd04 Modern Rules \u2013 turns always alternate';
+    updateLobbyJoinCount(1); // we are already player 1
+    document.getElementById('lobby-status').textContent = '\u23f3 Waiting for Player 2 to scan\u2026';
+    document.getElementById('lobby-status').className   = 'status-pill waiting';
+
+    // Poll fallback in case the realtime broadcast is missed
+    const poll = setInterval(async () => {
+      if (S.phase !== 'lobby') { clearInterval(poll); return; }
+      try {
+        const r = await dbGetRoom(S.roomId);
+        if (r.player2_id && !S.opponentId) {
+          clearInterval(poll);
+          S.opponentId = r.player2_id;
+          updateLobbyJoinCount(2);
+          setTimeout(initPlacementScreen, 800);
+        }
+      } catch (_) {}
+    }, 3000);
+
+  } catch (err) {
+    btn.disabled    = false;
+    btn.textContent = 'Play on this Device';
+    alert(err.message);
+  }
+}
+
+// ── JOIN SCREEN (manual code entry – kept for entering a friend's code) ───────
 
 function initJoinScreen() {
   showScreen('join');
