@@ -50,20 +50,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const params   = new URLSearchParams(location.search);
   const joinCode = params.get('join');
+  const after    = joinCode ? () => joinViaUrl(joinCode) : initHomeScreen;
 
-  if (joinCode) {
-    joinViaUrl(joinCode);
+  if (!getPlayerName()) {
+    initNamePickerScreen(after);
   } else {
-    initHomeScreen();
+    after();
   }
 });
 
-// ── HOME ──────────────────────────────────────────────────────────────────────
+// ── NAME PICKER ───────────────────────────────────────────────────────────────────────
+
+function initNamePickerScreen(callback) {
+  showScreen('namepick');
+  document.querySelectorAll('.name-btn').forEach(btn => {
+    btn.onclick = () => {
+      setPlayerName(btn.dataset.name);
+      callback();
+    };
+  });
+}
+
+// ── HOME ───────────────────────────────────────────────────────────────────────────
 
 function initHomeScreen() {
   S.phase = 'home';
   S.mode  = null;
   showScreen('home');
+
+  const name = getPlayerName();
+  document.getElementById('home-player-name').textContent = '⚓ Playing as ' + name;
 
   document.querySelectorAll('.rule-card').forEach(card => {
     card.onclick = () => {
@@ -73,8 +89,65 @@ function initHomeScreen() {
     };
   });
 
-  document.getElementById('btn-host-game').onclick = handleHostGame;
-  document.getElementById('btn-join-game').onclick = handlePlayerGame;
+  document.getElementById('btn-host-game').onclick   = handleHostGame;
+  document.getElementById('btn-join-game').onclick   = handlePlayerGame;
+  document.getElementById('btn-leaderboard').onclick = initLeaderboardScreen;
+  document.getElementById('btn-change-player').onclick = () => {
+    localStorage.removeItem('bs_player_name');
+    initNamePickerScreen(initHomeScreen);
+  };
+}
+
+// ── LEADERBOARD ──────────────────────────────────────────────────────────────
+
+async function initLeaderboardScreen() {
+  showScreen('leaderboard');
+  const tableEl = document.getElementById('leaderboard-table');
+  tableEl.innerHTML = '<p class="lb-loading">Loading…</p>';
+
+  try {
+    const games   = await dbGetLeaderboard();
+    const PLAYERS = ['Barney', 'Daddy', 'Mummy', 'Florrie'];
+    const stats   = {};
+    PLAYERS.forEach(p => { stats[p] = { wins: 0, played: 0 }; });
+
+    games.forEach(g => {
+      if (g.player1_name && stats[g.player1_name]) stats[g.player1_name].played++;
+      if (g.player2_name && stats[g.player2_name]) stats[g.player2_name].played++;
+      if (g.winner_name  && stats[g.winner_name])  stats[g.winner_name].wins++;
+    });
+
+    const EMOJIS = { Barney: '🧒', Daddy: '👨', Mummy: '👩', Florrie: '👧' };
+    const MEDALS = ['🥇', '🥈', '🥉', ''];
+    const myName = getPlayerName();
+
+    const sorted = [...PLAYERS].sort((a, b) => {
+      if (stats[b].wins !== stats[a].wins) return stats[b].wins - stats[a].wins;
+      return stats[b].played - stats[a].played;
+    });
+
+    tableEl.innerHTML = sorted.map((name, i) => {
+      const s   = stats[name];
+      const pct = s.played ? Math.round(s.wins / s.played * 100) : 0;
+      return `
+        <div class="lb-row${name === myName ? ' lb-me' : ''}">
+          <span class="lb-medal">${MEDALS[i] || ''}</span>
+          <span class="lb-avatar">${EMOJIS[name]}</span>
+          <span class="lb-name">${name}</span>
+          <span class="lb-stat"><strong>${s.wins}</strong><small>wins</small></span>
+          <span class="lb-stat"><strong>${s.played}</strong><small>played</small></span>
+          <span class="lb-pct">${pct}%</span>
+        </div>`;
+    }).join('');
+
+    if (games.length === 0) {
+      tableEl.innerHTML += '<p class="lb-loading">No finished games yet — play one!</p>';
+    }
+  } catch (e) {
+    tableEl.innerHTML = '<p class="lb-loading" style="color:var(--ship-hit)">Could not load leaderboard.</p>';
+  }
+
+  document.getElementById('btn-lb-back').onclick = initHomeScreen;
 }
 
 // ── HOST GAME (Laptop display) ─────────────────────────────────────────────────
@@ -733,7 +806,7 @@ async function handleFire(row, col) {
   updateBattleUI(row, col, result, true);
 
   if (result.gameOver) {
-    await dbUpdateRoomStatus(S.roomId, 'finished', S.playerId);
+    await dbUpdateRoomStatus(S.roomId, 'finished', S.playerId, getPlayerName());
     await rtBroadcast('game_over', { winnerId: S.playerId });
     showGameOver(true);
   }

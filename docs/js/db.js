@@ -15,6 +15,14 @@ function getOrCreatePlayerId() {
   return id;
 }
 
+function getPlayerName() {
+  return localStorage.getItem('bs_player_name') || '';
+}
+
+function setPlayerName(name) {
+  localStorage.setItem('bs_player_name', name);
+}
+
 // ── Room operations ───────────────────────────────────────────────────────────
 
 async function dbCreateRoom(rules) {
@@ -37,7 +45,7 @@ async function dbCreateAndJoinRoom(rules) {
 
   const { data, error } = await _sb
     .from('game_rooms')
-    .insert({ room_code: roomCode, rules, status: 'waiting', player1_id: playerId })
+    .insert({ room_code: roomCode, rules, status: 'waiting', player1_id: playerId, player1_name: getPlayerName() })
     .select()
     .single();
 
@@ -81,7 +89,7 @@ async function dbJoinRoom(roomCode) {
   if (!room.player2_id) {
     const { data: claimed } = await _sb
       .from('game_rooms')
-      .update({ player2_id: playerId, status: 'placing', updated_at: new Date().toISOString() })
+      .update({ player2_id: playerId, player2_name: getPlayerName(), status: 'placing', updated_at: new Date().toISOString() })
       .eq('id', room.id)
       .is('player2_id', null)
       .select()
@@ -102,9 +110,10 @@ async function dbGetRoom(roomId) {
   return data;
 }
 
-async function dbUpdateRoomStatus(roomId, status, winnerId = null) {
+async function dbUpdateRoomStatus(roomId, status, winnerId = null, winnerName = null) {
   const updates = { status, updated_at: new Date().toISOString() };
-  if (winnerId) updates.winner_id = winnerId;
+  if (winnerId)   updates.winner_id   = winnerId;
+  if (winnerName) updates.winner_name = winnerName;
   const { error } = await _sb.from('game_rooms').update(updates).eq('id', roomId);
   if (error) console.error('updateRoomStatus:', error.message);
 }
@@ -163,4 +172,13 @@ async function dbRecordMove(roomId, playerId, row, col, hit, shipSunk) {
     .from('game_moves')
     .insert({ room_id: roomId, player_id: playerId, row, col, hit, ship_sunk: shipSunk || null });
   if (error) console.error('recordMove:', error.message);
+}
+
+async function dbGetLeaderboard() {
+  const { data, error } = await _sb
+    .from('game_rooms')
+    .select('player1_name, player2_name, winner_name')
+    .eq('status', 'finished');
+  if (error) throw new Error('Could not fetch leaderboard: ' + error.message);
+  return data || [];
 }

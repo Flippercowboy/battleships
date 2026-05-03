@@ -8,11 +8,31 @@
 </head>
 <body>
 
+  <!-- ══════════════════════════════════════════════════════════ NAME PICKER -->
+  <div id="screen-namepick" class="screen">
+    <div class="screen-inner center-content">
+      <h1 class="title">⚓ BATTLESHIPS</h1>
+      <h2 class="section-label">Who are you?</h2>
+      <div class="name-grid">
+        <button class="name-btn" data-name="Barney">🧒<br>Barney</button>
+        <button class="name-btn" data-name="Daddy">👨<br>Daddy</button>
+        <button class="name-btn" data-name="Mummy">👩<br>Mummy</button>
+        <button class="name-btn" data-name="Florrie">👧<br>Florrie</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══════════════════════════════════════════════════════════ HOME SCREEN -->
   <div id="screen-home" class="screen active">
     <div class="screen-inner center-content">
       <h1 class="title">⚓ BATTLESHIPS</h1>
-      <p class="home-subtitle">Open on a laptop — both players scan the QR to play on their phones</p>
+
+      <div class="player-chip">
+        <span id="home-player-name">⚓ Playing as …</span>
+        <button id="btn-change-player" class="btn-chip">Change</button>
+      </div>
+
+      <button id="btn-leaderboard" class="btn-leaderboard">🏆 Leaderboard</button>
 
       <div class="rules-section">
         <h2 class="section-label">Choose Rules</h2>
@@ -168,6 +188,16 @@
       <h1 class="title">⚓ BATTLESHIPS</h1>
       <div id="gameover-result" class="gameover-result"></div>
       <button id="btn-play-again" class="btn-primary">Play Again</button>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════ LEADERBOARD -->
+  <div id="screen-leaderboard" class="screen">
+    <div class="screen-inner center-content">
+      <h1 class="title">⚓ BATTLESHIPS</h1>
+      <h2 class="section-label">🏆 Leaderboard</h2>
+      <div id="leaderboard-table" class="leaderboard-table"></div>
+      <button id="btn-lb-back" class="btn-secondary">← Back</button>
     </div>
   </div>
 
